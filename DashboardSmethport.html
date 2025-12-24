@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Smethport</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+<style>
+  body {
+    margin: 0;
+    background: black;
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    grid-template-rows: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    color: white;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  .widgets {
+    display: grid;
+    grid-template-rows: 1fr 2fr 2fr 2fr 2fr;
+    gap: 20px;
+    padding: 20px;
+    box-sizing: border-box;
+    height: 100%;
+  }
+
+  .widget {
+    background: #111;
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .area-name { font-size: 28px; font-weight: 600; }
+  .time { font-size: 64px; font-weight: 700; }
+  .date { font-size: 24px; opacity: 0.85; }
+  .temp { font-size: 56px; }
+  .forecast { font-size: 22px; opacity: 0.85; }
+
+  #forecast3 {
+    font-size: 20px;
+    line-height: 1.4;
+    text-align: center;
+    opacity: 0.9;
+  }
+
+  #alerts {
+    font-size: 18px;
+    text-align: center;
+    line-height: 1.4;
+  }
+
+  .alert-active {
+    color: #ff5555;
+    font-weight: 600;
+  }
+
+  .cams {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 20px;
+    height: 100%;
+    padding: 20px;
+    box-sizing: border-box;
+  }
+
+  .cam {
+    background: #111;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .cam video,
+  .cam iframe,
+  .cam img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .label {
+    position: absolute;
+    bottom: 6px;
+    left: 6px;
+    background: rgba(0,0,0,0.6);
+    font-size: 14px;
+    padding: 3px 7px;
+    border-radius: 5px;
+    pointer-events: none;
+  }
+</style>
+</head>
+
+<body>
+
+<div class="widgets">
+  <div class="widget"><div class="area-name" id="area"></div></div>
+  <div class="widget"><div class="time" id="time"></div><div class="date" id="date"></div></div>
+  <div class="widget"><div class="temp" id="temp">--°F</div><div class="forecast" id="forecast">---</div></div>
+  <div class="widget"><div id="forecast3">---</div></div>
+  <div class="widget"><div id="alerts">Checking alerts…</div></div>
+</div>
+
+<div class="cams" id="cams"></div>
+
+<script>
+const AREA_NAME = "Smethport, PA";
+const LAT = 41.809;
+const LON = -78.451;
+document.getElementById('area').textContent = AREA_NAME;
+
+/* CLOCK */
+function updateClock() {
+  const now = new Date();
+  document.getElementById('time').textContent =
+    now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  document.getElementById('date').textContent =
+    now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+/* WEATHER */
+async function fetchWeather() {
+  try {
+    const url =
+      `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}` +
+      `&current_weather=true&daily=temperature_2m_max,temperature_2m_min,weathercode` +
+      `&timezone=America/New_York`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const tempF = Math.round(data.current_weather.temperature * 9/5 + 32);
+    document.getElementById('temp').textContent = `${tempF}°F`;
+    document.getElementById('forecast').textContent =
+      weatherCodeToText(data.current_weather.weathercode);
+
+    const f = [];
+    for (let i = 1; i <= 3; i++) {
+      const d = new Date(data.daily.time[i]).toLocaleDateString([], { weekday: 'short' });
+      const hi = Math.round(data.daily.temperature_2m_max[i] * 9/5 + 32);
+      const lo = Math.round(data.daily.temperature_2m_min[i] * 9/5 + 32);
+      f.push(`${d}: ${hi}° / ${lo}° — ${weatherCodeToText(data.daily.weathercode[i])}`);
+    }
+    document.getElementById('forecast3').innerHTML = f.join("<br>");
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+/* ALERTS */
+async function fetchAlerts() {
+  const alertsEl = document.getElementById('alerts');
+  try {
+    const res = await fetch(
+      `https://api.weather.gov/alerts/active?point=${LAT},${LON}`,
+      { headers: { "Accept": "application/geo+json" } }
+    );
+    const data = await res.json();
+
+    if (data.features?.length) {
+      alertsEl.innerHTML =
+        `<span class="alert-active">${data.features[0].properties.event}</span>`;
+    } else {
+      alertsEl.textContent = "No Active Weather Alerts";
+    }
+  } catch {
+    alertsEl.textContent = "No Active Weather Alerts";
+  }
+}
+
+function weatherCodeToText(code) {
+  const map = { 0:"Clear Sky",1:"Mainly Clear",2:"Partly Cloudy",3:"Overcast",
+    61:"Light Rain",63:"Moderate Rain",65:"Heavy Rain",
+    71:"Light Snow",73:"Moderate Snow",75:"Heavy Snow",
+    95:"Thunderstorm" };
+  return map[code] ?? `Code ${code}`;
+}
+
+fetchWeather();
+fetchAlerts();
+
+/* CAMS */
+const CAMS = [
+  { name:"Smethport Live", type:"gif", url:"https://mckeanweather.com/cam2/image.jpg?1766344950", refresh: 300000 },
+  { name:"Kinzua Live", type:"gif", url:"https://climate.met.psu.edu/features/pemn_images/images/MCKN01_CURRENT.JPG", refresh: 300000 },
+  { name:"Radar", type:"gif", url:"https://radar.weather.gov/ridge/standard/KCCX_loop.gif" },
+  { name:"Satellite", type:"gif", url:"https://cdn.star.nesdis.noaa.gov/GOES19/ABI/SECTOR/ne/GEOCOLOR/GOES19-NE-GEOCOLOR-600x600.gif" },
+  { name:"Wind", type:"iframe", url:"https://embed.windy.com/embed.html?lat=41.809&lon=-78.451&zoom=11" },
+  { name:"Flight Data", type:"iframe", url:"https://globe.adsbexchange.com/?lat=41.809&lon=-78.451&zoom=10&menu=0" }
+];
+
+const camContainer = document.getElementById('cams');
+
+CAMS.forEach(cam => {
+  const div = document.createElement('div');
+  div.className = 'cam';
+
+  if (cam.type === 'gif') {
+    const img = document.createElement('img');
+    img.src = cam.url + '?t=' + Date.now();
+    div.appendChild(img);
+  } else if (cam.type === 'iframe') {
+    const iframe = document.createElement('iframe');
+    iframe.src = cam.url;
+    div.appendChild(iframe);
+  } else {
+    const video = document.createElement('video');
+    video.autoplay = video.muted = video.playsInline = true;
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(cam.hlsUrl);
+      hls.attachMedia(video);
+    } else {
+      video.src = cam.hlsUrl;
+    }
+    div.appendChild(video);
+  }
+
+  const label = document.createElement('div');
+  label.className = 'label';
+  label.textContent = cam.name;
+  div.appendChild(label);
+  camContainer.appendChild(div);
+});
+
+setInterval(() => location.reload(), 5 * 60 * 1000);
+</script>
+
+</body>
+</html>
